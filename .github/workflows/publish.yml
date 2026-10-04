@@ -1,0 +1,42 @@
+name: Publish to NPM
+
+# Publishes ONLY when a GitHub Release is published.
+#
+# Tag pushes and pushes to main deliberately do NOT publish: `gh release create`
+# fires both a tag push and a release event, so publishing on the tag as well
+# would race and fail with
+#   `403 You cannot publish over the previously published versions`.
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm provenance
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build
+        run: bun run build
+
+      - name: Publish to NPM
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          access: public
+          provenance: true
