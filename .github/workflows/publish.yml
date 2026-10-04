@@ -1,21 +1,27 @@
 name: Publish to NPM
 
-# Publishes ONLY when a GitHub Release is published.
+# Stages each GitHub Release on npm instead of publishing directly. A maintainer
+# then approves with 2FA, and only then does the version go live.
 #
-# Tag pushes and pushes to main deliberately do NOT publish: `gh release create`
-# fires both a tag push and a release event, so publishing on the tag as well
-# would race and fail with
-#   `403 You cannot publish over the previously published versions`.
+# Auth is OIDC trusted publishing: no NPM_TOKEN. GitHub mints a short-lived OIDC
+# token (permissions: id-token: write) and the npm CLI exchanges it for a
+# credential. The npm "Trusted Publisher" entry must name this repo and this
+# file (`publish.yml`), and must allow `npm stage publish` (direct `npm publish`
+# can be disabled).
+#
+# `release: published` fires after the GitHub Release is live, so "staged" is
+# not "released" — the version only becomes public once approved.
 on:
   release:
     types: [published]
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # trusted publishing requires a GitHub-hosted runner
     permissions:
       contents: read
-      id-token: write # OIDC token for npm provenance
+      id-token: write # REQUIRED for OIDC trusted publishing + provenance
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,6 +30,19 @@ jobs:
         uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
+
+      # npm is needed only to stage the release (Bun ships no npm CLI). Staged
+      # publishing requires npm >= 11.15.0 and Node >= 22.14.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Ensure npm supports staged publishing
+        run: |
+          npm install -g 'npm@^11.15.0'
+          npm --version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -34,9 +53,6 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Publish to NPM
-        uses: JS-DevTools/npm-publish@v3
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
-          access: public
-          provenance: true
+      # Stages the version; nothing becomes public until a maintainer approves.
+      - name: Stage package on npm (OIDC, no token)
+        run: npm stage publish --provenance
