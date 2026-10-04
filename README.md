@@ -14,6 +14,9 @@ style:
 - **↓ generating** — the provider is streaming tokens back.
 - Hidden when the session is idle or running tools.
 
+https://github.com/user-attachments/assets/858af6d7-3b1a-48fa-8f86-ab5dcee55a63
+
+
 ## Install
 
 Add the package name to the `plugins` array in `~/.config/opencode/cli.json`:
