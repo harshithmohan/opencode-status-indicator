@@ -1,6 +1,6 @@
 {
   "name": "opencode-status-indicator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode v2 TUI plugin: shows whether the active request is in the PREFILL stage or DECODING, Claude-Code style (up/down arrow)",
   "type": "module",
   "license": "MIT",

@@ -11,7 +11,8 @@
  *     ↑ prefill 1.2s
  *     ↓ decoding 340ms
  *
- * The indicator is hidden entirely when the session is idle or running tools.
+ * The indicator is hidden entirely when the session is idle, while tools run,
+ * and while a failed attempt is backing off before its scheduled retry.
  */
 
 import { Plugin } from "@opencode/plugin/tui"
@@ -23,16 +24,22 @@ const ARROW = { prefill: "\u2191", decode: "\u2193" } as const
 const LABEL = { prefill: "processing", decode: "generating" } as const
 
 type Stage = keyof typeof ARROW
+/**
+ * `retry` is internal-only: the previous attempt failed and the host is sleeping
+ * until `since` (the scheduled retry time) before dispatching the next attempt.
+ * It renders as hidden while waiting, then as prefill.
+ */
+type LiveStage = Stage | "retry"
 
 interface Live {
-  readonly stage: Stage
+  readonly stage: LiveStage
   readonly since: number
 }
 
 /** Compact duration: `340ms`, `1.2s`, `12.3s`. */
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  return `${(Math.max(0, ms) / 1000).toFixed(1)}s`
 }
 
 const MINIMAL_EVENT = (event: { data?: { sessionID?: string }; sessionID?: string; created?: number }) => ({
@@ -50,13 +57,19 @@ export default Plugin.define({
 
     const timer = setInterval(() => setNow(Date.now()), 100)
 
-    const enter = (sessionID: string | undefined, stage: Stage, at: number) => {
+    const enter = (sessionID: string | undefined, stage: LiveStage, at: number) => {
       if (!sessionID) return
       setLive((prev) => {
         const current = prev[sessionID]
         // Re-stamp only on an actual phase change; repeated events in the same
-        // phase must not reset the elapsed timer.
-        if (current && current.stage === stage) return prev
+        // phase must not reset the elapsed timer. Retries always re-stamp, since
+        // each one carries a new scheduled time.
+        if (current && current.stage === stage && stage !== "retry") return prev
+        // First token after a backoff: promote the scheduled retry into prefill
+        // WITHOUT re-stamping, so the timer keeps counting from the retry's
+        // dispatch time rather than resetting at the first token.
+        if (current && current.stage === "retry" && stage === "prefill")
+          return { ...prev, [sessionID]: { stage: "prefill", since: current.since } }
         return { ...prev, [sessionID]: { stage, since: at } }
       })
     }
@@ -76,9 +89,17 @@ export default Plugin.define({
       const { sessionID, created } = MINIMAL_EVENT(event)
       enter(sessionID, "prefill", created)
     }
-    // DECODE: first provider output (stream boundary or first part).
+    // DECODE opener: the first part of a step arrived.
     const onDecode = (event: any) => {
       const { sessionID, created } = MINIMAL_EVENT(event)
+      enter(sessionID, "decode", created)
+    }
+    // DECODE extender: batched deltas (and the post-stream marker) must never
+    // OPEN a phase — a flush landing after a failure/tool-call must not revive
+    // "generating" during backoff or tool execution.
+    const onDecodeExtend = (event: any) => {
+      const { sessionID, created } = MINIMAL_EVENT(event)
+      if (!sessionID || !live()[sessionID]) return
       enter(sessionID, "decode", created)
     }
     // Terminal: step/session finished, session went idle, or a tool started
@@ -87,21 +108,39 @@ export default Plugin.define({
       const { sessionID } = MINIMAL_EVENT(event)
       exit(sessionID)
     }
+    // A failed attempt is sleeping until `at`. Stay hidden for the backoff, then
+    // re-arm prefill at the scheduled time so the next attempt's in-flight window
+    // (which emits no dispatch event) is visible again.
+    const onRetry = (event: any) => {
+      const { sessionID, created } = MINIMAL_EVENT(event)
+      const at =
+        typeof event?.data?.at === "number"
+          ? event.data.at
+          : typeof event?.at === "number"
+            ? event.at
+            : created
+      enter(sessionID, "retry", at)
+    }
 
     const unsubscribe = [
       context.data.on("session.execution.started", onPrefill),
       context.data.on("session.step.started", onPrefill),
-      context.data.on("session.step.streamed", onDecode),
+      context.data.on("session.compaction.started", onPrefill),
+      // A step ending means the provider's answer is complete. When another step
+      // follows (tool continuation) its request is dispatched immediately and
+      // emits no start event, so re-arm prefill here; a real turn end is cleared
+      // by the execution terminal / idle event.
+      context.data.on("session.step.ended", onPrefill),
       context.data.on("session.text.started", onDecode),
       context.data.on("session.reasoning.started", onDecode),
-      context.data.on("session.text.delta", onDecode),
-      context.data.on("session.reasoning.delta", onDecode),
       context.data.on("session.tool.input.started", onDecode),
-      context.data.on("session.tool.input.delta", onDecode),
+      context.data.on("session.text.delta", onDecodeExtend),
+      context.data.on("session.reasoning.delta", onDecodeExtend),
+      context.data.on("session.tool.input.delta", onDecodeExtend),
       // Tool execution runs *inside* the step (step.ended only fires after the
       // tool joins), so we must hide explicitly when execution begins.
       context.data.on("session.tool.called", onDone),
-      context.data.on("session.step.ended", onDone),
+      context.data.on("session.retry.scheduled", onRetry),
       context.data.on("session.step.failed", onDone),
       context.data.on("session.execution.succeeded", onDone),
       context.data.on("session.execution.failed", onDone),
@@ -117,7 +156,10 @@ export default Plugin.define({
           if (!id) return undefined
           const entry = live()[id]
           if (!entry) return undefined
-          return { stage: entry.stage, elapsed: now() - entry.since }
+          // Backoff window: no request is in flight yet.
+          if (entry.stage === "retry" && now() < entry.since) return undefined
+          const stage: Stage = entry.stage === "retry" ? "prefill" : entry.stage
+          return { stage, elapsed: Math.max(0, now() - entry.since) }
         }
 
         return (
