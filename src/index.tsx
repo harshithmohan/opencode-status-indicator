@@ -47,9 +47,22 @@ const MINIMAL_EVENT = (event: { data?: { sessionID?: string }; sessionID?: strin
   created: typeof event?.created === "number" ? event.created : Date.now(),
 })
 
+/**
+ * Was `setup` called by the TUI process? The service context has no `data`/`ui`
+ * — it must no-op there, or the load throws
+ * `TypeError: undefined is not an object (evaluating 'context.data.on')`.
+ */
+function hasTuiSurface(context: unknown): context is Context {
+  const candidate = context as Partial<Context> | undefined
+  return typeof candidate?.ui?.slot === "function" && typeof candidate?.data?.on === "function"
+}
+
 export default Plugin.define({
   id: "opencode-status-indicator",
-  setup(context: Context) {
+  setup(context: unknown) {
+    // Service-side invocation: nothing to render, and no events to watch here.
+    if (!hasTuiSurface(context)) return
+
     // Per-session phase state, keyed by sessionID. Replaced immutably so the
     // signal drives reactivity.
     const [live, setLive] = createSignal<Record<string, Live>>({})

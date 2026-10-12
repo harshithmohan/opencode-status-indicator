@@ -1,11 +1,12 @@
 /**
- * Build the TUI plugin to `dist/tui.mjs`.
+ * Build the plugin to `dist/index.mjs`.
  *
- * The host loads local plugins as a single precompiled ESM file, so JSX must be
+ * The host loads plugins as a single precompiled ESM file, so JSX must be
  * transformed at build time with OpenTUI's first-party Solid plugin. Runtime
  * dependencies are supplied by the OpenCode host and stay external.
  */
 import solidTransformPlugin from "@opentui/solid/bun-plugin"
+import { rmSync } from "node:fs"
 import path from "node:path"
 
 const root = import.meta.dir
@@ -22,8 +23,12 @@ const external = [
   "solid-js/web",
 ]
 
+// Clear stale output first: `package.json` `files` publishes all of `dist`, so an
+// artefact left over from an earlier layout would ship.
+rmSync(outDir, { recursive: true, force: true })
+
 const result = await Bun.build({
-  entrypoints: [path.join(srcDir, "tui.tsx")],
+  entrypoints: [path.join(srcDir, "index.tsx")],
   outdir: outDir,
   root: srcDir,
   format: "esm",
@@ -40,4 +45,4 @@ if (!result.success) {
   process.exit(1)
 }
 
-console.log("✓ Built dist/tui.mjs")
+console.log("✓ Built dist/index.mjs")
