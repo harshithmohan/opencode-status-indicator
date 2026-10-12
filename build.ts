@@ -1,5 +1,6 @@
 /**
- * Build the plugin to `dist/index.mjs`.
+ * Build the plugin to `dist/index.mjs` (TUI) and `dist/server.mjs` (service),
+ * plus a local-dev-only `dist/tui.mjs` shim (see the note before it is written).
  *
  * The host loads plugins as a single precompiled ESM file, so JSX must be
  * transformed at build time with OpenTUI's first-party Solid plugin. Runtime
@@ -28,7 +29,7 @@ const external = [
 rmSync(outDir, { recursive: true, force: true })
 
 const result = await Bun.build({
-  entrypoints: [path.join(srcDir, "index.tsx")],
+  entrypoints: [path.join(srcDir, "index.tsx"), path.join(srcDir, "server.ts")],
   outdir: outDir,
   root: srcDir,
   format: "esm",
@@ -45,4 +46,11 @@ if (!result.success) {
   process.exit(1)
 }
 
-console.log("✓ Built dist/index.mjs")
+// Local-dev shim. `Host.resolve({ directory })` bypasses package `exports` and
+// probes literal paths: `<dir>/server` then `<dir>/index` for the server slot,
+// but only `<dir>/tui` (no fallback) for the TUI slot. Without this file a local
+// checkout wired as `"file://<abs>/dist"` loads server-side but never renders the
+// footer. It is excluded from the published tarball via package.json `files`.
+await Bun.write(path.join(outDir, "tui.mjs"), 'export { default } from "./index.mjs"\n')
+
+console.log("✓ Built dist/index.mjs, dist/server.mjs, dist/tui.mjs")

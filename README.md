@@ -49,7 +49,7 @@ Elapsed time is derived from each event's `created` timestamp (host clock), not 
 
 ```bash
 bun install
-bun run build     # emits dist/index.mjs
+bun run build     # emits dist/index.mjs (TUI) + dist/server.mjs (service)
 ```
 
-Requires [Bun](https://bun.sh) for the build. It uses OpenTUI's first-party Solid transform (`@opentui/solid/bun-plugin`, a wrapper over `babel-preset-solid` with `generate: "universal"`, `moduleName: "@opentui/solid"`). Runtime dependencies (`@opentui/solid`, `solid-js`, `@opencode/plugin/tui`) are supplied by the OpenCode host and are marked external.
+Requires [Bun](https://bun.sh) for the build. It uses OpenTUI's first-party Solid transform (`@opentui/solid/bun-plugin`, a wrapper over `babel-preset-solid` with `generate: "universal"`, `moduleName: "@opentui/solid"`). Runtime dependencies (`@opentui/solid`, `solid-js`, `@opencode/plugin/tui`) are supplied by the OpenCode host and are marked external. They are used only by the TUI entrypoint (`src/index.tsx` → `dist/index.mjs`); the service entrypoint (`src/server.ts` → `dist/server.mjs`, mapped to `exports["."]`) is dependency-free, since the server process does not provide those modules.

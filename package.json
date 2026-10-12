@@ -1,6 +1,6 @@
 {
   "name": "opencode-status-indicator",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "OpenCode v2 TUI plugin: shows whether the active request is in the PREFILL stage or DECODING, Claude-Code style (up/down arrow)",
   "type": "module",
   "license": "MIT",
@@ -13,11 +13,12 @@
     "url": "https://github.com/harshithmohan/opencode-status-indicator/issues"
   },
   "exports": {
-    ".": "./dist/index.mjs",
+    ".": "./dist/server.mjs",
     "./tui": "./dist/index.mjs"
   },
   "files": [
     "dist",
+    "!dist/tui.mjs",
     "README.md",
     "LICENSE"
   ],
